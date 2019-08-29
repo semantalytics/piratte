@@ -1,0 +1,106 @@
+#########################################################################################
+# This README provides examples on how to run the implementation of			#
+# "PIRATTE:Proxy-based Immediate Revocation of ATTribute-based Encryption"		#
+# Sonia Jahid, University of Illinois at Urbana-Champaign				#
+# Code available for download at: http://www.soniajahid.com				#
+# This implementation is based on BSW CP-ABE toolkit					#
+# License: GPL										#
+#########################################################################################
+
+###### INSTALL ######
+# Prerequisite : Pairing-Based Cryptography (PBC) library (http://crypto.stanford.edu/pbc)
+
+# libbswabe-piratte
+./configure
+make
+make install
+
+# piratte
+./configure
+make
+make install
+
+###### EXAMPLES ######
+
+# Change REVOKE_T in libbswabe-piratte/bswabe.h for revoked users and recompile. Default is set to 100.
+
+###### Encrypt and Decrypt with a regular private key ######
+# 1. Create a text file to encrypt
+# 2. Run setup to generate public key pk-a and master secret key mk-a.
+# 3. Generate private key for user B with attributes 'friend, colleague'. The id of user B is written to sk-ab.id.
+# 4. Setup the proxy. No user is revoked. A proxy key rvk-a is created with random users. To revoke specific users, append the .id files to the end of the command. e.g., cpabe-revoke -o rvk-a pk-a mk-a sk-ab.id
+# 5. Encrypt a.txt. The ciphertext is written to a.txt.cpabe and a.txt.cpaes. We divide the ciphertext because in case the proxy is located in a remote location, we don't have to communicate the whole ciphertext, but the .cpabe file.
+# 6. The proxy converts the ciphertext into a.txt.cpabe.proxy, and generates lambda_k to lk-b for user B.
+# 7. Decrypt a.txt.cpabe.proxy into a.txt.
+# 8. Output the content of the text file.
+
+echo "Hello" > a.txt
+easier-setup -p pk-a -m mk-a
+easier-keygen -o sk-ab pk-a mk-a friend colleague
+easier-revoke -o rvk-a pk-a mk-a
+easier-enc pk-a a.txt 'friend and colleague'
+easier-convert -l lk-b pk-a a.txt.cpabe rvk-a sk-ab.id
+easier-dec pk-a sk-ab lk-b a.txt.cpabe.proxy
+cat a.txt
+
+###### Test revocation ######
+echo "Hello" > a.txt
+easier-setup -p pk-a -m mk-a
+easier-keygen -o sk-ab pk-a mk-a friend colleague
+easier-keygen -o sk-ac pk-a mk-a friend colleague neighbor
+easier-enc pk-a a.txt 'friend and colleague'
+easier-revoke -o rvk-a pk-a mk-a sk-ab.id
+easier-convert -k -l lk-b pk-a a.txt.cpabe rvk-a sk-ab.id
+easier-dec -k pk-a sk-ab lk-b a.txt.cpabe.proxy
+cat a.txt
+easier-convert -k -l lk-c pk-a a.txt.cpabe rvk-a sk-ac.id
+easier-dec pk-a sk-ac lk-c a.txt.cpabe.proxy
+cat a.txt
+
+###### Encrypt and Decrypt with a delegated private key ######
+# 1. Create a text file to encrypt
+# 2. User A runs setup to generate public key pk-a and master secret key mk-a.
+# 3. Generate private key for user B with attributes 'friend, colleague, and fof'. 'fof' attribute is for the purpose of delegation, though you can delegate any of these attributes.
+# 4. Setup A's proxy. No user is revoked. A proxy key rvk-a is created with random users. To revoke specific users, append the .id files to the end of the command. e.g., easier-revoke -o rvk-a pk-a mk-a sk-ab.id sk-ac.id.
+# 5. Encrypt a.txt. The policy allows the ciphertext to be decrypted by a delegated key that contains 'fof'. The ciphertext is written to a.txt.cpabe and a.txt.cpaes. We divide the ciphertext because in case the proxy is located in a remote location, we don't have to communicate the whole ciphertext, just the .cpabe file.
+# 6. A's proxy converts the ciphertext into a.txt.cpabe.proxy, and generates lambda_k to lk-b.
+
+echo "Hello" > a.txt
+easier-setup -p pk-a -m mk-a
+easier-keygen -o sk-ab pk-a mk-a friend colleague fof
+easier-revoke -o rvk-a pk-a mk-a
+easier-enc pk-a a.txt '(friend and colleague) or fof'
+easier-convert -k -l lk-b pk-a a.txt.cpabe rvk-a sk-ab.id
+
+# This portion should be run in a different machine since User A and User B may be in different locations. Run in the same machine to test. 
+# 7. User B runs setup to generate public key pk-b and master secret key mk-b.
+# 8. Generate private key for user C with attributes 'acquaintance neighbor'.
+# 9. Setup B's proxy. No user is revoked. A proxy key rvk-b is created with random users. To revoke specific users, append the .id files to the end of the command. e.g., easier-revoke -o rvk-b pk-b mk-b sk-bc.id
+# 10. B delegates the fof attribute in his private key to C. 
+# 11. C asks B's proxy to run convert.
+# 12. C runs decryption with delegated key. We assume B has somehow communicated lk-b to C.
+
+easier-setup -p pk-b -m mk-b
+easier-keygen -o sk-bc pk-b mk-b acquaintance neighbor
+easier-revoke -o rvk-b pk-b mk-b
+easier-delegate -o skdel-abc pk-b mk-b sk-ab sk-bc.id fof
+easier-convert -k -o a2.txt.cpabe.proxy -l lk-c pk-b a.txt.cpabe rvk-b sk-bc.id
+easier-dec_delegated -k -o a.txt pk-a pk-b skdel-abc lk-b lk-c a.txt.cpabe.proxy a2.txt.cpabe.proxy
+cat a.txt
+
+###### Test Revocation ######
+
+rm a.txt
+echo "Hello" > a.txt
+easier-setup -p pk-a -m mk-a
+easier-keygen -o sk-ab pk-a mk-a friend colleague fof
+easier-revoke -o rvk-a pk-a mk-a sk-ab.id
+easier-enc pk-a a.txt '(friend and colleague) or fof'
+easier-convert -k -l lk-b pk-a a.txt.cpabe rvk-a sk-ab.id
+easier-setup -p pk-b -m mk-b
+easier-keygen -o sk-bc pk-b mk-b acquaintance neighbor
+easier-revoke -o rvk-b pk-b mk-b
+easier-delegate -o skdel-abc pk-b mk-b sk-ab sk-bc.id fof
+easier-convert -k -o a2.txt.cpabe.proxy -l lk-c pk-b a.txt.cpabe rvk-b sk-bc.id
+easier-dec_delegated -k -o a.txt pk-a pk-b skdel-abc lk-b lk-c a.txt.cpabe.proxy a2.txt.cpabe.proxy
+cat a.txt
